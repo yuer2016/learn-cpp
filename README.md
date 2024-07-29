@@ -1,6 +1,22 @@
 # C++
 
 - [C++](#c)
+  - [C++ Code Style](#c-code-style)
+  - [宏定义和条件编译](#宏定义和条件编译)
+    - [预处理编程](#预处理编程)
+    - [包含文件（include）](#包含文件include)
+    - [宏定义（#define/#undef）](#宏定义defineundef)
+    - [条件编译（#if/#else/#endif）](#条件编译ifelseendif)
+  - [自动类型推导](#自动类型推导)
+  - [指针](#指针)
+    - [所有权](#所有权)
+    - [指针声明语法](#指针声明语法)
+    - [引用](#引用)
+    - [引用与指针的区别](#引用与指针的区别)
+    - [函数指针](#函数指针)
+    - [动态内存分配](#动态内存分配)
+    - [数组和指针](#数组和指针)
+    - [指针运算](#指针运算)
   - [结构体](#结构体)
     - [方法声明和调用的语法](#方法声明和调用的语法)
     - [方法的定义和结构体分离](#方法的定义和结构体分离)
@@ -18,9 +34,432 @@
     - [与子类共享代码](#与子类共享代码)
     - [属于类的数据](#属于类的数据)
     - [如何实现多态](#如何实现多态)
+    - [类的最佳实践](#类的最佳实践)
   - [C++ 模板](#c-模板)
     - [类型推断](#类型推断)
     - [模板类](#模板类)
+  - [容器](#容器)
+  - [标准库](#标准库)
+
+## C++ Code Style
+
+***任何人都能写出机器能看懂的代码，但只有优秀的程序员才能写出人能看懂的代码.***
+
+1. 变量、函数名和名字空间用 snake_case，全局变量加 “g_” 前缀；
+2. 自定义类名用 CamelCase，成员函数用 snake_case，成员变量加 “m_” 前缀；
+3. 宏和常量应当全大写，单词之间用下划线连接；
+4. 尽量不要用下划线作为变量的前缀或者后缀（比如 \_local、name_），很难识别。
+
+```C++
+#define MAX_PATH_LEN 256 //常量，全大写
+
+int g_sys_flag; // 全局变量，加 g_ 前缀
+
+namespace linux_sys { // 名字空间，全小写
+  void get_rlimit_core(); // 函数，全小写
+}
+
+class FilePath final // 类名，首字母大写
+{
+  public:
+    void set_path(const string& str); // 函数，全小写
+  private:
+    string m_path; // 成员变量，m_前缀
+    int m_level;  // 成员变量，m_前缀
+}
+```
+
+变量函数的名字长度与它的作用域成正比，也就是说，局部变量函数名可以短一点，而全局变量函数名应该长一点
+
+## 宏定义和条件编译
+
+### 预处理编程
+
+预处理阶段编程的操作目标是 **源码**，用各种指令控制预处理器，把源码改造成另一种形式。
+
+C++ 语言有近百个关键字，预处理指令只有十来个，预处理指令都以符号 **#** 开头，虽然都在一个源文件里，但它不属于 C++ 语言，它走的是预处理器，不受 C++ 语法规则的约束。因此，预处理编程也就不用太遵守 C++ 代码的风格。
+
+一般来说，预处理指令不应该受 C++ 代码缩进层次的影响，不管是在函数、类里，还是在 if、for 等语句里，永远是 **顶格写**。
+
+单独的一个 **#** 也是一个预处理指令，叫 “空指令”，可以当作特别的预处理空行。而 **#** 与后面的指令之间也可以有空格，从而实现缩进，方便排版。
+
+```C++
+# // 预处理空行
+#if __linux__ // 预处理检查宏是否存在
+# define HAS_LINUX 1 // 宏定义，有缩进
+#endif // 预处理条件语句结束
+# // 预处理空行
+```
+
+```shell
+g++ test03.cpp -E -o a.cxx #输出预处理后的源码
+```
+
+### 包含文件（include）
+
+最常用的预处理指令 “#include”，它的作用是 “包含文件”。
+注意，不是 “包含头文件”，而是可以包含任意的文件。
+也就是说，只要愿意，使用 “#include” 可以把源码、普通文本，甚至是图片、音频、视频都引进来。
+
+```C++
+#include "a.out" // 完全合法的预处理包含指令，你可以试试
+```
+
+因为 “include” 不做什么检查，只是单纯的合并文件，在写头文件的时候，为了防止代码被重复包含，通常要加上 “#ifndef/#define/#endif” 来保护整个头文件。
+
+```C++
+#ifndef _XXX_H_INCLUDED_
+#define _XXX_H_INCLUDED_
+ // 头文件内容
+#endif // _XXX_H_INCLUDED_
+```
+
+一个应用示例
+
+```C++
+static uint32_t calc_table[] = { // 非常大的一个数组，有几十行
+0x00000000, 0x77073096, 0xee0e612c, 0x990951ba,
+0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
+0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
+0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
+};
+
+static uint32_t calc_table[] = {
+# include "calc_values.inc" // 非常大的一个数组，细节被隐藏
+}
+```
+
+### 宏定义（#define/#undef）
+
+“#define”，用来定义一个源码级别的 “文本替换”，也就是常说的 “宏定义”。
+
+“#define” 在预处理阶段可以无视 C++ 语法限制，替换任何文字，定义常量、变量，实现函数功能，为类型起别名（typedef），减少重复代码等。
+
+因为宏的展开、替换发生在预处理阶段，不涉及函数调用、参数传递、指针寻址，没有任何运行期的效率损失，所以对于一些调用频繁的小代码片段来说，用宏来封装的效果比 inline 关键字要更好，因为它真的是源码级别的无条件内联。
+
+```C++
+#define ngx_tolower(c) ((c >= 'A' && c <= 'Z') ? (c | 0x20) : c)
+#define ngx_toupper(c) ((c >= 'a' && c <= 'z') ? (c & ~0x20) : c)
+#define ngx_memzero(buf, n) (void) memset(buf, 0, n)
+```
+
+其次，宏是没有作用域概念的，永远是全局生效，对于一些用来简化代码、起临时作用的宏，最好是用完后尽快用 “#undef” 取消定义，避免冲突的风险。
+
+```C++
+#define CUBE(a) (a) * (a) * (a) // 定义一个简单的求立方的宏
+cout << CUBE(10) << endl; // 使用宏简化代码
+cout << CUBE(15) << endl; // 使用宏简化代码
+#undef CUBE // 使用完毕后立即取消定义
+
+// 宏定义前先检查
+#ifdef AUTH_PWD // 检查是否已经有宏定义
+# undef AUTH_PWD // 取消宏定义
+#endif // 宏定义检查结束
+#define AUTH_PWD "xxx" // 重新宏定义
+
+// 用宏定义常量
+#define MAX_BUF_LEN 65535
+#define VERSION "1.0.18"
+
+// 用宏来代替直接定义名字空间（namespace）
+#define BEGIN_NAMESPACE(x) namespace x {
+#define END_NAMESPACE(x) }
+
+BEGIN_NAMESPACE(my_own)
+// functions and classes
+END_NAMESPACE(my_own)
+```
+
+### 条件编译（#if/#else/#endif）
+
+条件编译有两个要点，一个是条件指令“#if”，另一个是后面的“判断依据”，也就是定义好的各种宏，而这个 “判断依据” 是条件编译里最关键的部分。
+
+```C++
+#ifdef __cplusplus // 定义了这个宏就是在用C++编译
+extern "C" { // 函数按照C的方式去处理
+#endif
+
+void a_c_function(int a);
+
+#ifdef __cplusplus // 检查是否是C++编译
+} // extern "C" 结束
+#endif
+
+#if __cplusplus >= 201402 // 检查C++标准的版本号
+cout << "c++14 or later" << endl; // 201402就是C++14
+#elif __cplusplus >= 201103 // 检查C++标准的版本号
+cout << "c++11 or before" << endl; // 201103是C++11
+#else // __cplusplus < 201103 // 199711是C++98
+# error "c++ is too old" // 太低则预处理报错
+#endif // __cplusplus >= 201402 // 预处理语句结束
+```
+
+## 自动类型推导
+
+因为 C++ 是一种静态强类型的语言，任何变量都要有一个确定的类型，否则就不能用。
+在 “自动类型推导” 出现之前，写代码时只能 “手动推导”，也就是说，在声明变量的时候，必须要明确地给出类型。
+这在变量类型简单的时候还好说，比如 int、double，但在泛型编程的时候，麻烦就来了。
+因为泛型编程里会有很多模板参数，有的类型还有内部子类型，一下子就把 C++ 原本简洁的类型体系给搞复杂了，这就迫使我们去和编译器“斗智斗勇”，只有写对了类型，编译器才会“放行”（编译通过）
+
+```C++
+int i = 0; // 整数变量，类型很容易知道
+double x = 1.0; // 浮点数变量，类型很容易知道
+std::string str = "hello"; // 字符串变量，有了名字空间，麻烦了一点
+
+std::map<int, std::string> m = // 关联数组，名字空间加模板参数，很麻烦
+ {{1,"a"}, {2,"b"}}; // 使用初始化列表的形式
+
+std::map<int, std::string>::const_iterator // 内部子类型，超级麻烦
+iter = m.begin();
+```
+
+```C++
+auto i = 0; // 自动推导为int类型
+auto x = 1.0; // 自动推导为double类型
+auto str = "hello"; // 自动推导为const char [6]类型
+std::map<int, std::string> m = {{1,"a"}, {2,"b"}}; // 自动推导不出来
+auto iter = m.begin(); // 自动推导为map内部的迭代器类型
+auto f = bind1st(std::less<int>(), 2); // 自动推导出类型，具体是啥不知道
+
+class X final
+{
+  auto a = 10; // 错误，类里不能使用auto推导类型
+};
+```
+
+decltype 的形式很像函数，后面的圆括号里就是可用于计算类型的表达式
+
+```C++
+int x = 0; // 整型变量
+decltype(x) x1; // 推导为int，x1是int
+decltype(x)& x2 = x; // 推导为int，x2是int&，引用必须赋值
+decltype(x)* x3; // 推导为int，x3是int*
+decltype(&x) x4; // 推导为int*，x4是int*
+decltype(&x)* x5; // 推导为int*，x5是int**
+decltype(x2) x6 = x2; // 推导为int&，x6是int&，引用必须赋值
+
+int x = 0; // 整型变量
+decltype(auto) x1 = (x); // 推导为int&，因为(expr)是引用类型
+decltype(auto) x2 = &x; // 推导为int*
+decltype(auto) x3 = x1; // 推导为int&
+
+using int_ptr = decltype(&x); // int *
+```
+
+最佳实践
+
+```C++
+vector<int> v = {2,3,5,7,11}; // vector顺序容器
+
+for(const auto& i : v) { // 常引用方式访问元素，避免拷贝代价
+  cout << i << ","; // 常引用不会改变元素的值
+}
+
+for(auto& i : v) { // 引用方式访问元素
+    i++; // 可以改变元素的值
+    cout << i << ",";
+}
+
+auto get_a_set() // auto作为函数返回值的占位符
+{
+  std::set<int> s = {1,2,3};
+  return s;
+}
+
+// UNIX信号函数的原型，看着就让人晕，你能手写出函数指针吗？
+void (*signal(int signo, void (*func)(int)))(int)
+// 使用decltype可以轻松得到函数指针类型
+using sig_func_ptr_t = decltype(&signal);
+
+class DemoClass final
+{
+  public:
+    using set_type = std::set<int>; // 集合类型别名
+  private:
+    set_type m_set; // 使用别名定义成员变量
+    // 使用decltype计算表达式的类型，定义别名
+    using iter_type = decltype(m_set.begin());
+    iter_type m_pos; // 类型别名定义成员变量  
+}
+```
+
+## 指针
+
+当声明一个变量时，底层会分配出一定大小的内存来存储变量的信息，而分配内存的多少，则是在编译时确定的，在程序运行阶段，不能改变分配的这块内存的大小。
+
+创建数据数组来使用大量的变量，其实质就是一大串内存。
+但是，数组不能够存储超过写程序时就已指定好的元素数量。
+
+为了能够访问（几乎）无限量的内存，需要一种类型的变量，它能够直接引用存储着变量值的内存，这种变量就叫做指针。
+指针可以指：
+
+1. 内存地址本身；
+2. 存储内存地址的变量。
+
+当一个变量存储了另一变量的地址，我们就会说，它指向了那个变量。
+
+### 所有权
+
+所有权这个概念是函数及其使用者之间接口的一部分，它在编程语言中没有显式出现。
+当写一个函数，它接受一个指针，应该说明该函数是否占用了内存的所有权。
+C++不会为你追踪内存的所有权。
+
+只要程序正在运行，C++就永远不会帮你释放已经显式分配了的内存，除非你显式要求释放。
+
+只有某些代码应使用某些内存，这就是为什么不能随便取一些内存地址来使用；
+
+如果只是生成一个随机数，然后把它当做内存地址来用，后果会怎样呢？
+技术上来讲可以这样做，但这是一个糟糕的想法。
+你不知道谁被分配了这块内存，甚至有可能是栈本身，如果你修改了内存里存储的值，就会破坏正在使用中的数据！
+为了帮助发现这类问题，操作系统会将尚未分配给你使用的内存保护起来——该内存对你来说是非法的，访问非法内存将导致程序崩溃。
+
+### 指针声明语法
+
+以下是声明一个指针变量的语法:
+
+```C++
+<type> *<ptr_name>;
+
+// 示例
+int *p_points_to_integer;
+// p_pointer1 是指针, nonpointer1 是普通的 int 变量
+int *p_pointer1, nonpointer1; 
+// p_pointer1 和 p_pointer2 都是指针
+int *p_pointer1, *p_pointer2; 
+```
+
+指针既可以直接指向新分配的内存，也可以指向一个已经存在的变量。
+为了获得变量地址（即变量在内存中的位置），要把符号 & 放在变量名前。
+& 称为取地址操作符，它能返回变量的内存地址。
+
+```C++
+int x; 
+int *p_x = &x; 
+*p_x = 2; // initialize x to 2 
+```
+
+指针存储的是地址。
+因此，直接使用 “裸” 指针得到的就是地址。
+要获得或调整存储在该地址中的值，必须添加额外的*。
+
+变量存储的是数据值。
+因此，直接使用变量得到的就是数据值。
+而要获得变量的地址，就必须额外添加 &
+
+```C++
+#include <iostream> 
+using namespace std;
+
+int main () 
+{ 
+ int x; //x为普通变量
+ int *p_int; // p_int 为指向一个整型数的指针 
+ 
+ p_int = &x; // 将 x 的地址赋值给 p_int 
+ cout << "Please enter a number: "; 
+ cin >> x; // 读入一个值并赋值给变量 x，这里的 x 也可以用 *p_int 来代替
+ cout << *p_int << '\n'; // 使用 * 来获得指针所指向的变量的值 
+
+ *p_int = 10; 
+ cout << x; // 再次输出10！ 
+} 
+```
+
+### 引用
+
+引用是指一个变量引用了另外一个变量，它们背后共享着相同的内存。
+引用变量的使用方法跟普通变量类似，可以将它想象成一个简化版的指针, 与指针不同的是，引用必须始终指向有效内存。
+声明一个引用，需要使用&符号：
+
+```C++
+int x = 5; 
+int &ref = x; // 注意，不需要在x的前面加上*号！
+
+// 给函数传递结构体时可以使用引用，而无需传递整个结构体，也不用担心空指针问题。
+struct myBigStruct 
+{ 
+ int x[ 100 ]; // 占用了大量内存的大结构体！
+}; 
+ 
+void takeStruct (myBigStruct& my_struct) 
+{ 
+ my_struct.x[0] ="foo"; 
+} 
+```
+
+### 引用与指针的区别
+
+当需要通过多个名称来使用同一个变量时，我们可以使用引用来替代指针。
+比如，你想要将参数传递给一个函数而不用复制它们，又或者希望函数对参数的修改能够对调用者可见。
+引用并不像指针那般灵活，因为引用必须总是有效的。
+
+引用和指针还有一个区别：一旦一个引用被初始化，你便不能改变它指向的内存地址。
+引用永远指向相同的变量，这也限制了它们构建复杂的数据结构的灵活性。
+
+### 函数指针
+
+函数指针是一种特殊的指针类型，它指向一个函数。
+可以使用函数指针来调用函数，存储函数地址，或者将函数作为参数传递给其他函数。
+声明函数指针的基本语法如下：
+
+```C++
+int add(int a, int b) {
+    return a + b;
+}
+// 返回类型 (*指针名称)（参数列表）;
+// 函数指针指向 add 函数
+int (*functionPtr)(int, int) = add; 
+// 使用函数指针调用函数：
+int result = functionPtr(3, 5); 
+```
+
+### 动态内存分配
+
+动态分配是指，在程序运行时请求所需要的内存大小。
+你的程序将计算出它所需的内存数量，而不是只能处理一组特定大小的固定的变量。
+
+```C++
+int *p_int = new int; // 申请内存
+delete p_int; // 释放内存
+```
+
+### 数组和指针
+
+```C++
+int numbers[ 8 ]; 
+int* p_numbers = numbers; 
+
+for (int i = 0; i < 8; ++i) 
+{ 
+  p_numbers[ i ] = i; 
+}
+```
+
+数组 numbers 被赋给指针时，仿佛它本身就是一个指针一样。
+重要的是理解清楚，数组不是指针，但数组可以被赋值给指针。
+C++ 编译器知道怎样将一个数组转换为一个指针，这个指针会指向数组的第一个元素。
+这种转换在 C++ 中经常发生。
+例如，你可以将一个 char 类型的变量赋给一个 int 类型的变量。char 不是 int，但编译器知道如何进行转换。
+
+### 指针运算
+
+指针代表内存地址，而内存地址归根结底只是个数字。
+所以，就像使用数字一样，你可以对指针执行一些数学运算。
+例如，指针与一个数相加，或两个指针相减。
+
+```C++
+int arr[] = {10, 20, 30, 40, 50};
+int *p = arr; // p 指向数组的第一个元素
+
+x[3] = 120;
+*(x + 3) = 120;
+
+p++; // p 现在指向数组的第二个元素，即 20
+p--; // p 回到指向第一个元素
+
+p += 2; // p 现在指向数组的第三个元素，即 120
+p -= 1; // p 现在指向数组的第二个元素，即 20
+```
 
 ## 结构体
 
@@ -119,19 +558,19 @@ enum PlayerColor { PC_WHITE, PC_BLACK };
 class ChessBoard 
 { 
   public: 
-    ChessPiece getPiece (int x, int y); 
-    PlayerColor getMove (); 
-    void makeMove (int from_x, int from_y, int to_x, int to_y);
+    ChessPiece getPiece(int x, int y); 
+    PlayerColor getMove(); 
+    void makeMove(int from_x, int from_y, int to_x, int to_y);
 
   private: 
-    ChessPiece _board[ 8 ][ 8 ]; 
+    ChessPiece _board[8][8]; 
     PlayerColor _whose_move; 
 }; 
 
 // 方法的定义和之前完全相同！
-ChessPiece ChessBoard::getPiece (int x, int y) 
+ChessPiece ChessBoard::getPiece(int x, int y) 
 { 
-  return _board[ x ][ y ]; 
+  return _board[x][y]; 
 } 
 
 PlayerColor ChessBoard::getMove () 
@@ -139,11 +578,11 @@ PlayerColor ChessBoard::getMove ()
   return _whose_move; 
 } 
 
-void ChessBoard::makeMove (int from_x, int from_y, int to_x, int to_y) 
+void ChessBoard::makeMove(int from_x, int from_y, int to_x, int to_y) 
 { 
   //通常情况下，首先需要写点代码验证移动棋子的合法性
-  _board[ to_x ][ to_y ] = _board[ from_x ][ from_y ]; 
-  _board[ from_x ][ from_y ] = EMPTY_SQUARE; 
+  _board[to_x][to_y] = _board[from_x][ from_y]; 
+  _board[from_x][from_y] = EMPTY_SQUARE; 
 }
 
 // 声明一个类的实例就如同声明一个结构体的实例一样：
@@ -681,6 +1120,130 @@ void drawEverything ()
 3. 在函数表中找到给定名称（这里就是draw）的函数。函数表在字面上就是存储着每个函数在内存中的地址的集合。
 4. 带着相关的参数去调用所找到的函数
 
+### 类的最佳实践
+
+一个通用原则是在设计类的时候尽量少用继承和虚函数。
+如果非要用继承不可，那么一定要控制继承的层次，如果继承深度超过三层，就说明有点 “过度设计” 了，需要考虑用组合关系替代继承关系，或者改用模板和泛型。
+
+在设计类接口的时候，让类尽量简单、“短小精悍”，只负责单一的功能。
+
+C++11 新增了一个特殊的标识符 **final** 不是关键字，把它用于类定义，就可以显式地禁用继承，防止其他人有意或者无意地产生派生类。
+
+```C++
+class DemoClass final // 禁止任何人继承我
+{ 
+
+};
+```
+
+在必须使用继承的场合，建议你只使用 public 继承，避免使用 virtual、protected，因为它们会让父类与子类的关系变得难以捉摸，带来很多麻烦。
+当到达继承体系底层时，也要及时使用“final”，终止继承关系。
+
+```C++
+class Interface // 接口类定义，没有final，可以被继承
+{
+
+};
+
+class Implement final : // 实现类，final禁止再被继承
+      public Interface // 只用 public 继承
+{
+
+}
+```
+
+C++ 里类的四大函数: 构造函数、析构函数、拷贝构造函数、拷贝赋值函数。
+C++11 因为引入了右值（Rvalue）和转移（Move），又多出了两大函数：转移构造函数和转移赋值函数。
+所以，在现代 C++ 里，一个类总是会有六大基本函数：三个构造、两个赋值、一个析构。
+
+C++ 编译器会自动生成这些函数的默认实现，省去重复编写的时间和精力。
+对于比较重要的构造函数和析构函数，应该用 ***= default*** 的形式，明确地告诉编译器（和代码阅读者）：
+“应该实现这个函数，但我不想自己写。” 这样编译器就得到了明确的指示，可以做更好的优化。
+
+```C++
+class DemoClass final
+{
+  public:
+    DemoClass() = default; // 明确告诉编译器，使用默认实现
+    ~DemoClass() = default; // 明确告诉编译器，使用默认实现
+    DemoClass(const DemoClass&) = delete; // 禁止拷贝构造
+    DemoClass& operator=(const DemoClass&) = delete; // 禁止拷贝赋值
+};
+```
+
+C++ 有隐式构造和隐式转型的规则，如果你的类里有单参数的构造函数，或者是转型操作符函数，为了防止意外的类型转换，保证安全，就要使用 “explicit” 将这些函数标记为 “显式”
+
+```C++
+class DemoClass final
+{
+public:
+  explicit DemoClass(const string_type& str) // 显式单参构造函数
+  { 
+  }
+  explicit operator bool() // 显式转型为bool
+  {
+  }
+}
+```
+
+委托构造
+
+```C++
+class DemoDelegating final
+{
+private:
+  int a; // 成员变量
+public:
+  DemoDelegating(int x) : a(x) // 基本的构造函数
+  {}
+  DemoDelegating() : // 无参数的构造函数
+      DemoDelegating(0) // 给出默认值，委托给第一个构造函数
+  {}
+  DemoDelegating(const string& s) : // 字符串参数构造函数
+      DemoDelegating(stoi(s)) // 转换成整数，再委托给第一个构造函数
+  {}
+}
+```
+
+成员变量初始化
+
+```C++
+class DemoInit final // 有很多成员变量的类
+{
+  private:
+    int a = 0; // 整数成员，赋值初始化
+    string s = "hello"; // 字符串成员，赋值初始化
+    vector<int> v{1, 2, 3}; // 容器成员，使用花括号的初始化列表
+  public:
+    DemoInit() = default; // 默认构造函数
+    ~DemoInit() = default; // 默认析构函数
+  public:
+    DemoInit(int x) : a(x) {} // 可以单独初始化成员，其他用默认值
+};
+```
+
+类型别名
+
+```C++
+class DemoClass final
+{
+  public:
+    using this_type = DemoClass; // 给自己也起个别名
+    using kafka_conf_type = KafkaConfig; // 外部类起别名
+  public:
+    using string_type = std::string; // 字符串类型别名
+    using uint32_type = uint32_t; // 整数类型别名
+    using set_type = std::set<int>; // 集合类型别名
+    using vector_type = std::vector<std::string>;// 容器类型别名
+  private:
+    string_type m_name = "tom"; // 使用类型别名声明变量
+    uint32_type m_age = 23; // 使用类型别名声明变量
+    set_type m_books; // 使用类型别名声明变量
+  private:
+    kafka_conf_type m_conf; // 使用类型别名声明变量
+};
+```
+
 ## C++ 模板
 
 模板允许你把数据类型 ***提取出来***。
@@ -727,12 +1290,12 @@ class Calc
 template <typename Type> Calc<Type>::Calc () 
 {}
 
-template <typename Type> Type Calc<Type>::multiply (Type x, Type y) 
+template <typename Type> Type Calc<Type>::multiply(Type x, Type y) 
 { 
  return x * y; 
 }
 
-template <typename Type> Type Calc<Type>::add (Type x, Type y) 
+template <typename Type> Type Calc<Type>::add(Type x, Type y) 
 { 
  return x + y; 
 }
@@ -743,3 +1306,7 @@ int main ()
  Calc<int> c; 
 } 
 ```
+
+## 容器
+
+## 标准库
