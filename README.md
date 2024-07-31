@@ -2,6 +2,10 @@
 
 - [C++](#c)
   - [C++ Code Style](#c-code-style)
+  - [基础表达式](#基础表达式)
+    - [const 与 volatile](#const-与-volatile)
+      - [与类相关的 const 用法](#与类相关的-const-用法)
+      - [关键字 mutable](#关键字-mutable)
   - [宏定义和条件编译](#宏定义和条件编译)
     - [预处理编程](#预处理编程)
     - [包含文件（include）](#包含文件include)
@@ -17,6 +21,10 @@
     - [动态内存分配](#动态内存分配)
     - [数组和指针](#数组和指针)
     - [指针运算](#指针运算)
+  - [智能指针](#智能指针)
+    - [unique\_ptr](#unique_ptr)
+      - [unique\_ptr 的所有权](#unique_ptr-的所有权)
+    - [shared\_ptr](#shared_ptr)
   - [结构体](#结构体)
     - [方法声明和调用的语法](#方法声明和调用的语法)
     - [方法的定义和结构体分离](#方法的定义和结构体分离)
@@ -35,11 +43,13 @@
     - [属于类的数据](#属于类的数据)
     - [如何实现多态](#如何实现多态)
     - [类的最佳实践](#类的最佳实践)
+  - [异常处理](#异常处理)
   - [C++ 模板](#c-模板)
     - [类型推断](#类型推断)
     - [模板类](#模板类)
   - [容器](#容器)
   - [标准库](#标准库)
+  - [第三方库](#第三方库)
 
 ## C++ Code Style
 
@@ -70,6 +80,114 @@ class FilePath final // 类名，首字母大写
 ```
 
 变量函数的名字长度与它的作用域成正比，也就是说，局部变量函数名可以短一点，而全局变量函数名应该长一点
+
+## 基础表达式
+
+### const 与 volatile
+
+const 正如它的字面含义，表示 ***常量***。
+最简单的用法就是，定义程序用到的数字、字符串常量，代替宏定义。
+
+```C++
+const int MAX_LEN = 1024;
+const std::string NAME = "metroid";
+```
+
+const 和宏定义的本质区别：const 定义的常量在预处理阶段并不存在，而是直到运行阶段才会出现。
+所以，准确地说，它实际上是运行时的“变量”，只不过不允许修改，是“只读”的（read only），叫 “只读变量” 更合适。
+
+```C++
+// 需要加上 volatile 修饰，运行时才能看到效果
+const volatile int MAX_LEN = 1024;
+auto ptr = (int*)(&MAX_LEN);
+*ptr = 2048;
+cout << MAX_LEN << endl; // 输出2048
+```
+
+const 后面多出了一个 volatile 的修饰,是这段代码的关键。如果没有这个 volatile，那么，即使用指针得到了常量的地址，并且尝试进行了各种修改，但输出的仍然会是常数 1024。
+
+因为真正的 **常数** 对于计算机来说有特殊意义，它是绝对不变的，所以编译器就要想各种办法去优化。
+
+volatile 它的含义是“不稳定的” “易变的”，在 C++ 里，表示变量的值可能会以“难以察觉”的方式被修改（比如操作系统信号、外界其他的代码），所以要禁止编译器做任何形式的优化，每次使用的时候都必须“老老实实”地去取值。
+volatile 会禁止编译器做优化，所以除非必要，应当少用 volatile。
+
+在 C++ 里，除了最基本的值类型，还有引用类型和指针类型，它们加上 const 就成了 **常量引用** 和 **常量指针** 。
+
+```C++
+int x = 100;
+const int& rx = x;
+const int* px = &x;
+```
+
+const & 被称为万能引用，它可以引用任何类型，不管是值、指针、左引用还是右引用。
+它还会给变量附加上 const 特性，这样“变量”就成了“常量”，只能读、禁止写。
+编译器会帮你检查出所有对它的写操作，发出警告，在编译阶段防止有意或者无意的修改。
+这样一来，const 常量用起来就非常安全了。
+在设计函数的时候，建议尽可能地使用 const & 作为入口参数，一来保证效率，二来保证安全。
+
+const 用于指针的情况会略微复杂一点。常见的用法是，const 放在声明的最左边，表示指向常量的指针。
+
+```C++
+string name = "uncharted";
+const string* ps1 = &name; // 指向常量
+*ps1 = "spiderman"; // 错误，不允许修改
+```
+
+const 在“*”的右边，表示指针不能被修改，而指向的变量可以被修改：
+
+```C++
+string name = "uncharted";
+string* const ps2 = &name; // 指向变量，但指针本身不能被修改
+*ps2 = "spiderman"; // 正确，允许修改
+```
+
+指针两边都有 const
+
+```C++
+string name = "uncharted";
+// ps3 是一个指向常量 std::string 的常量指针，它最初指向 name 变量。
+// 不能通过 ps3 修改 name 的内容，也不能将 ps3 指向另一个地址。
+// 只可以读取 name 的内容
+const string* const ps3 = &name; 
+```
+
+#### 与类相关的 const 用法
+
+```C++
+class DemoClass final
+{
+  private:
+    const long MAX_SIZE = 256; // const成员变量
+    int m_value; // 成员变量
+  public:
+    int get_value() const // const成员函数
+    {
+      return m_value;
+    }
+};
+```
+
+**const 成员函数** 的意思并不是说函数不可修改。
+在 C++ 里，函数并不是变量[lambda 表达式除外]，所以，**只读** 对于函数来说没有任何意义。
+它的真正含义是：函数的执行过程是 const 的，不会修改对象的状态（即成员变量），也就是说，成员函数是一个“只读操作”。
+
+#### 关键字 mutable
+
+mutable 只能修饰类里面的成员变量，表示变量即使是在 const 对象里，也是可以修改的。
+对于这些有特殊作用的成员变量，你可以给它加上 mutable 修饰，解除 const 的限制，让任何成员函数都可以操作它。
+
+```C++
+class DemoClass final
+{
+  private:
+    mutable mutex_type m_mutex; // mutable成员变量
+  public:
+    void save_data() const // const成员函数
+    {
+    // do someting with m_mutex
+    }
+};
+```
 
 ## 宏定义和条件编译
 
@@ -459,6 +577,147 @@ p--; // p 回到指向第一个元素
 
 p += 2; // p 现在指向数组的第三个元素，即 120
 p -= 1; // p 现在指向数组的第二个元素，即 20
+```
+
+## 智能指针
+
+智能指针的本质是应用代理模式，把裸指针包装起来，在构造函数里初始化，在析构函数里释放。
+这样当对象失效销毁时，C++ 就会自动调用析构函数，完成内存释放、资源回收等清理工作。
+常用的有两种智能指针，分别是 unique_ptr 和 shared_ptr。
+
+### unique_ptr
+
+unique_ptr 是最简单、最容易使用的一个智能指针，在声明的时候必须用模板参数指定类型:
+
+```C++
+unique_ptr<int> ptr1(new int(10)); // int智能指针
+assert(*ptr1 = 10); // 可以使用*取内容
+assert(ptr1 != nullptr); // 可以判断是否为空指针
+
+unique_ptr<string> ptr2(new string("hello")); // string智能指针
+assert(*ptr2 == "hello"); // 可以使用*取内容
+assert(ptr2->size() == 5); // 可以使用->调用成员函数
+```
+
+unique_ptr 实际上并不是指针，而是一个对象。
+所以，不要企图对它调用 delete，它会自动管理初始化时的指针，在离开作用域时析构释放内存。
+另外，它也没有定义加减运算，不能随意移动指针地址，这就完全避免了指针越界等危险操作。
+
+```C++
+// C++14 工厂函数 make_unique()，强制创建智能指针的时候必须初始化
+auto ptr3 = make_unique<int>(42); // 工厂函数创建智能指针
+assert(ptr3 && *ptr3 == 42);
+
+auto ptr4 = make_unique<string>("god of war"); // 工厂函数创建智能指针
+assert(!ptr4->empty());
+
+// C++11 简化版的 make_unique()
+template<class T, class... Args> // 可变参数模板
+std::unique_ptr<T> // 返回智能指针
+my_make_unique(Args&&... args) // 可变参数模板的入口参数
+{
+  return std::unique_ptr<T>( // 构造智能指针
+          new T(std::forward<Args>(args)...)); // 完美转发
+}
+```
+
+#### unique_ptr 的所有权
+
+使用 unique_ptr 的时候还要特别注意指针的“所有权”问题。
+正如它的名字，表示指针的所有权是“唯一”的，不允许共享，任何时候只能有一个“人”持有它。
+
+为了实现这个目的，unique_ptr 应用了 C++ 的“转移”（move）语义，同时禁止了拷贝赋值，所以，在向另一个 unique_ptr 赋值的时候，要特别留意，必须用 std::move() 函数显式地声明所有权转移。
+
+赋值操作之后，指针的所有权就被转走了，原来的 unique_ptr 变成了空指针，新的unique_ptr 接替了管理权，保证所有权的唯一性：
+
+```C++
+auto ptr1 = make_unique<int>(42); // 工厂函数创建智能指针
+assert(ptr1 && *ptr1 == 42); // 此时智能指针有效
+```
+
+尽量不要对 unique_ptr 执行赋值操作。
+
+### shared_ptr
+
+和 unique_ptr 不同 shared_ptr ：它的所有权是可以被安全共享的，也就是说支持拷贝赋值，允许被多个“人”同时持有，就像原始指针一样。
+
+```C++
+shared_ptr<int> ptr1(new int(10)); // int智能指针
+assert(*ptr1 = 10); // 可以使用*取内容
+
+shared_ptr<string> ptr2(new string("hello")); // string智能指针
+assert(*ptr2 == "hello"); // 可以使用*取内容
+
+auto ptr3 = make_shared<int>(42); // 工厂函数创建智能指针
+assert(ptr3 && *ptr3 == 42); // 可以判断是否为空指针
+
+auto ptr4 = make_shared<string>("zelda"); // 工厂函数创建智能指针
+assert(!ptr4->empty()); // 可以使用->调用成员函数
+
+auto ptr1 = make_shared<int>(42); // 工厂函数创建智能指针
+assert(ptr1 && ptr1.unique() ); // 此时智能指针有效且唯一
+
+auto ptr2 = ptr1; // 直接拷贝赋值，不需要使用move()
+assert(ptr1 && ptr2); // 此时两个智能指针均有效
+assert(ptr1 == ptr2); // shared_ptr可以直接比较
+
+// 两个智能指针均不唯一，且引用计数为 2
+assert(!ptr1.unique() && ptr1.use_count() == 2);
+assert(!ptr2.unique() && ptr2.use_count() == 2)
+```
+
+shared_ptr 支持安全共享的秘密在于内部使用了“引用计数”。
+
+虽然 shared_ptr 非常 “智能”，它也是有代价的，引用计数的存储和管理都是成本，这方面是 shared_ptr 不如 unique_ptr 的地方。
+
+shared_ptr 的引用计数也导致了一个新的问题，就是 “循环引用”，把 shared_ptr 作为类成员的时候最容易出现，典型的例子就是链表节点。
+
+```C++
+class Node final
+{
+  public:
+    using this_type = Node;
+    using shared_type = std::shared_ptr<this_type>;
+  public:
+    shared_type next; // 使用智能指针来指向下一个节点
+};
+
+auto n1 = make_shared<Node>(); // 工厂函数创建智能指针
+auto n2 = make_shared<Node>(); // 工厂函数创建智能指针
+assert(n1.use_count() == 1); // 引用计数为1
+assert(n2.use_count() == 1);
+
+n1->next = n2; // 两个节点互指，形成了循环引用
+n2->next = n1;
+assert(n1.use_count() == 2); // 引用计数为2
+assert(n2.use_count() == 2); // 无法减到0，无法销毁，导致内存泄漏
+```
+
+weak_ptr 顾名思义，功能很 “弱”。
+它专门为打破循环引用而设计，只观察指针，不会增加引用计数（弱引用），但在需要的时候，可以调用成员函数 lock()，获取 shared_ptr（强引用）。
+
+```C++
+class Node final
+{
+  public:
+    using this_type = Node;
+    // 注意这里，别名改用weak_ptr
+    using shared_type = std::weak_ptr<this_type>;
+  public:
+    shared_type next; // 因为用了别名，所以代码不需要改动
+};
+
+auto n1 = make_shared<Node>(); // 工厂函数创建智能指针
+auto n2 = make_shared<Node>(); // 工厂函数创建智能指针
+n1->next = n2; // 两个节点互指，形成了循环引用
+n2->next = n1;
+assert(n1.use_count() == 1); // 因为使用了weak_ptr，引用计数为1
+assert(n2.use_count() == 1); // 打破循环引用，不会导致内存泄漏
+
+if (!n1->next.expired()) { // 检查指针是否有效
+  auto ptr = n1->next.lock(); // lock()获取shared_ptr
+  assert(ptr == n2);
+}
 ```
 
 ## 结构体
@@ -1244,6 +1503,8 @@ class DemoClass final
 };
 ```
 
+## 异常处理
+
 ## C++ 模板
 
 模板允许你把数据类型 ***提取出来***。
@@ -1310,3 +1571,5 @@ int main ()
 ## 容器
 
 ## 标准库
+
+## 第三方库
